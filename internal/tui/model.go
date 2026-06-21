@@ -119,6 +119,7 @@ func New(s store.Store) Model {
 		keys:  defaultKeys(),
 	}
 	m.reload()
+	m.loadContent()
 	return m
 }
 

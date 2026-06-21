@@ -55,11 +55,17 @@ func (m *Model) resize() {
 	m.bodyHeight = bodyHeight
 	m.paneOuter = paneOuter
 
-	m.vp.Width = rightW - 2
+	// Reserve scrollbarCols on the right of the content pane for the scrollbar
+	// (a gap column plus the bar itself).
+	contentW := rightW - 2 - scrollbarCols
+	if contentW < 1 {
+		contentW = 1
+	}
+	m.vp.Width = contentW
 	m.vp.Height = bodyHeight
 	m.vp.SetContent(m.content)
 
-	m.ta.SetWidth(rightW - 2)
+	m.ta.SetWidth(contentW)
 	m.ta.SetHeight(bodyHeight)
 
 	m.help.Width = m.width

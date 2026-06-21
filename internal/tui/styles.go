@@ -80,4 +80,8 @@ var (
 				Bold(true)
 
 	helpStyle = lipgloss.NewStyle().Foreground(colorMuted)
+
+	scrollThumbStyle       = lipgloss.NewStyle().Foreground(colorMuted)
+	scrollThumbActiveStyle = lipgloss.NewStyle().Foreground(colorAccent)
+	scrollTrackStyle       = lipgloss.NewStyle().Foreground(colorBorder)
 )

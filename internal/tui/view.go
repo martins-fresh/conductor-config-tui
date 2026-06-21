@@ -113,12 +113,20 @@ func (m Model) filesPane() string {
 
 func (m Model) contentPane() string {
 	title := "Content"
-	var body string
+	var body, bar string
+	active := m.focus == focusContent
 	if m.mode == modeEdit {
 		title = "Editing"
 		body = m.ta.View()
+		// Approximate the visible window from the cursor line so the thumb
+		// tracks roughly where we are in the file.
+		total := m.ta.LineCount()
+		visible := m.ta.Height()
+		offset := m.ta.Line() - visible/2
+		bar = buildScrollbar(m.bodyHeight, total, visible, offset, true)
 	} else {
 		body = m.vp.View()
+		bar = buildScrollbar(m.bodyHeight, m.vp.TotalLineCount(), m.vp.Height, m.vp.YOffset, active)
 		if f, ok := m.currentFile(); ok {
 			badge := badgeEditStyle.Render("editable")
 			if !f.Editable {
@@ -130,19 +138,92 @@ func (m Model) contentPane() string {
 			}
 		}
 	}
-	active := m.focus == focusContent
 	titleStyleSel := paneTitleStyle
 	if active {
 		titleStyleSel = paneTitleActiveStyle
 	}
 	header := titleStyleSel.Render(title)
-	inner := lipgloss.JoinVertical(lipgloss.Left, header, body)
+	bodyWithBar := lipgloss.JoinHorizontal(lipgloss.Top, body, " ", bar)
+	inner := lipgloss.JoinVertical(lipgloss.Left, header, bodyWithBar)
 
 	box := paneStyle
 	if active {
 		box = paneActiveStyle
 	}
 	return box.Width(m.rightW - 2).Height(m.paneOuter - 2).Render(inner)
+}
+
+// scrollbarCols is the width reserved on the right of the content pane: one gap
+// column plus the one-column bar.
+const scrollbarCols = 2
+
+// buildScrollbar renders a vertical scrollbar of the given height. The thumb's
+// size reflects the fraction of content visible and its position reflects how
+// far the view is scrolled.
+func buildScrollbar(height, total, visible, offset int, active bool) string {
+	if height <= 0 {
+		return ""
+	}
+	thumbStyle := scrollThumbStyle
+	if active {
+		thumbStyle = scrollThumbActiveStyle
+	}
+
+	// Everything fits: the whole bar is the thumb.
+	if total <= 0 || visible <= 0 || total <= visible {
+		var b strings.Builder
+		for i := 0; i < height; i++ {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(thumbStyle.Render("█"))
+		}
+		return b.String()
+	}
+
+	thumb := int(roundDiv(height*visible, total))
+	if thumb < 1 {
+		thumb = 1
+	}
+	if thumb > height {
+		thumb = height
+	}
+
+	maxOffset := total - visible
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > maxOffset {
+		offset = maxOffset
+	}
+	pos := int(roundDiv((height-thumb)*offset, maxOffset))
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > height-thumb {
+		pos = height - thumb
+	}
+
+	var b strings.Builder
+	for i := 0; i < height; i++ {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if i >= pos && i < pos+thumb {
+			b.WriteString(thumbStyle.Render("█"))
+		} else {
+			b.WriteString(scrollTrackStyle.Render("│"))
+		}
+	}
+	return b.String()
+}
+
+// roundDiv returns a/b rounded to the nearest integer (b > 0).
+func roundDiv(a, b int) int {
+	if b == 0 {
+		return 0
+	}
+	return (a + b/2) / b
 }
 
 // paneBox renders a titled, bordered list pane with a scrolling window around
