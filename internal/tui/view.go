@@ -115,27 +115,24 @@ func (m Model) contentPane() string {
 	title := "Content"
 	var body, bar string
 	active := m.focus == focusContent
-	if m.mode == modeEdit {
-		title = "Editing"
-		body = m.ta.View()
-		// Approximate the visible window from the cursor line so the thumb
-		// tracks roughly where we are in the file.
-		total := m.ta.LineCount()
-		visible := m.ta.Height()
-		offset := m.ta.Line() - visible/2
-		bar = buildScrollbar(m.bodyHeight, total, visible, offset, true)
-	} else {
-		body = m.vp.View()
-		bar = buildScrollbar(m.bodyHeight, m.vp.TotalLineCount(), m.vp.Height, m.vp.YOffset, active)
-		if f, ok := m.currentFile(); ok {
-			badge := badgeEditStyle.Render("editable")
-			if !f.Editable {
-				badge = badgeROStyle.Render("read-only")
-			}
-			title = "Content " + badge
-			if m.contentTruncated {
-				title += lipgloss.NewStyle().Foreground(colorError).Render(" (truncated)")
-			}
+	if m.mode == modeEdit && m.editor != nil {
+		// The vim editor manages its own scrolling and status bar, so it takes
+		// the full inner width with no external scrollbar.
+		title = "Editing " + badgeEditStyle.Render("vim")
+		header := paneTitleActiveStyle.Render(title)
+		inner := lipgloss.JoinVertical(lipgloss.Left, header, m.editor.View())
+		return paneActiveStyle.Width(m.rightW - 2).Height(m.paneOuter - 2).Render(inner)
+	}
+	body = m.vp.View()
+	bar = buildScrollbar(m.bodyHeight, m.vp.TotalLineCount(), m.vp.Height, m.vp.YOffset, active)
+	if f, ok := m.currentFile(); ok {
+		badge := badgeEditStyle.Render("editable")
+		if !f.Editable {
+			badge = badgeROStyle.Render("read-only")
+		}
+		title = "Content " + badge
+		if m.contentTruncated {
+			title += lipgloss.NewStyle().Foreground(colorError).Render(" (truncated)")
 		}
 	}
 	titleStyleSel := paneTitleStyle

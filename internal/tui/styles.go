@@ -1,6 +1,9 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+)
 
 var (
 	colorAccent   = lipgloss.Color("205") // pink
@@ -85,3 +88,20 @@ var (
 	scrollThumbActiveStyle = lipgloss.NewStyle().Foreground(colorAccent)
 	scrollTrackStyle       = lipgloss.NewStyle().Foreground(colorBorder)
 )
+
+// gutterStyle hides the vim editor's line-number gutter as much as styling
+// allows: vimtea always renders a 4-column gutter with no way to disable it, so
+// we paint the digits in the terminal's actual background colour to make them
+// invisible. The 4-column blank margin still remains — that is a vimtea
+// limitation. Falls back to a dark grey if the background can't be queried.
+func gutterStyle() lipgloss.Style {
+	bg := termenv.DefaultOutput().BackgroundColor()
+	if bg == nil {
+		return lipgloss.NewStyle().Foreground(colorBg)
+	}
+	hex := termenv.ConvertToRGB(bg).Hex()
+	if hex == "" {
+		return lipgloss.NewStyle().Foreground(colorBg)
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(hex))
+}

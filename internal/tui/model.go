@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	vt "github.com/kujtimiihoxha/vimtea"
 
 	"github.com/martins-fresh/conductor-config-tui/internal/store"
 )
@@ -65,11 +65,11 @@ type Model struct {
 	focus focusArea
 	mode  mode
 
-	vp    viewport.Model
-	ta    textarea.Model
-	input textinput.Model
-	help  help.Model
-	keys  keyMap
+	vp     viewport.Model
+	editor vt.Editor // vim-style editor, non-nil only while editing
+	input  textinput.Model
+	help   help.Model
+	keys   keyMap
 
 	width  int
 	height int
@@ -98,11 +98,6 @@ type Model struct {
 
 // New builds the initial model and performs first discovery.
 func New(s store.Store) Model {
-	ta := textarea.New()
-	ta.Prompt = ""
-	ta.ShowLineNumbers = true
-	ta.CharLimit = 0
-
 	ti := textinput.New()
 	ti.Placeholder = "name"
 	ti.CharLimit = 128
@@ -113,7 +108,6 @@ func New(s store.Store) Model {
 		store: s,
 		focus: focusConductors,
 		mode:  modeBrowse,
-		ta:    ta,
 		input: ti,
 		help:  h,
 		keys:  defaultKeys(),
@@ -124,7 +118,7 @@ func New(s store.Store) Model {
 }
 
 // Init satisfies tea.Model.
-func (m Model) Init() tea.Cmd { return textarea.Blink }
+func (m Model) Init() tea.Cmd { return nil }
 
 // reload re-discovers conductors and the current file list, clamping cursors.
 func (m *Model) reload() {

@@ -5,7 +5,16 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	vt "github.com/kujtimiihoxha/vimtea"
 )
+
+// editorActionMsg is emitted by the vim editor's :w / :q / :wq commands and the
+// ctrl+s binding, carrying the request back up to the top-level model.
+type editorActionMsg struct {
+	save bool
+	exit bool
+	text string
+}
 
 // Update satisfies tea.Model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -17,6 +26,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize()
 		return m, nil
 
+	case editorActionMsg:
+		return m.handleEditorAction(msg)
+
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeEdit:
@@ -27,6 +39,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateConfirm(msg)
 		default:
 			return m.updateBrowse(msg)
+		}
+	}
+
+	// Forward any other message (cursor blink, etc.) to the editor while editing.
+	if m.mode == modeEdit && m.editor != nil {
+		mdl, cmd := m.editor.Update(msg)
+		if ed, ok := mdl.(vt.Editor); ok {
+			m.editor = ed
+		}
+		return m, cmd
+	}
+	return m, nil
+}
+
+// handleEditorAction performs the save/exit requested from within the editor.
+func (m Model) handleEditorAction(msg editorActionMsg) (tea.Model, tea.Cmd) {
+	if msg.save {
+		if err := m.store.Save(m.editingFile, []byte(msg.text)); err != nil {
+			m.setError(fmt.Sprintf("save failed: %v", err))
+			return m, nil // stay in the editor so the user can fix it
+		}
+		m.setStatus(fmt.Sprintf("saved %s", m.editingFile.Name))
+	}
+	if msg.exit {
+		m.editor = nil
+		m.mode = modeBrowse
+		m.reloadFiles()
+		m.loadContent()
+		if !msg.save {
+			m.setStatus("edit cancelled")
 		}
 	}
 	return m, nil
@@ -65,8 +107,15 @@ func (m *Model) resize() {
 	m.vp.Height = bodyHeight
 	m.vp.SetContent(m.content)
 
-	m.ta.SetWidth(contentW)
-	m.ta.SetHeight(bodyHeight)
+	// The editor gets the full inner width (it manages its own scroll, so no
+	// external scrollbar is reserved in edit mode).
+	if m.editor != nil {
+		if mdl, _ := m.editor.SetSize(rightW-2, bodyHeight); mdl != nil {
+			if ed, ok := mdl.(vt.Editor); ok {
+				m.editor = ed
+			}
+		}
+	}
 
 	m.help.Width = m.width
 }
@@ -225,38 +274,61 @@ func (m Model) startEdit() (tea.Model, tea.Cmd) {
 		m.loadContent()
 	}
 	m.editingFile = f
-	m.ta.SetValue(m.content)
-	m.ta.CursorStart()
-	m.ta.Focus()
+	m.editor = newEditor(m.content, f.Name)
 	m.mode = modeEdit
 	m.focus = focusContent
-	m.setStatus(fmt.Sprintf("editing %s — ctrl+s save, esc cancel", f.Name))
-	return m, nil
+	m.resize() // size the freshly-created editor
+	m.setStatus("vim — i insert · esc normal · :w save · :q quit · :wq save+quit")
+	return m, m.editor.Init()
+}
+
+// newEditor builds a vim editor seeded with content. Line numbers cannot be
+// disabled in vimtea, so the gutter is styled to blend into the background as
+// the closest available approximation of "no line numbers".
+func newEditor(content, name string) vt.Editor {
+	gutter := gutterStyle()
+	ed := vt.NewEditor(
+		vt.WithContent(content),
+		vt.WithFileName(name),
+		vt.WithEnableStatusBar(true),
+		vt.WithLineNumberStyle(gutter),
+		vt.WithCurrentLineNumberStyle(gutter),
+	)
+
+	save := func(buf vt.Buffer) tea.Cmd {
+		text := buf.Text()
+		return func() tea.Msg { return editorActionMsg{save: true, text: text} }
+	}
+	quit := func(buf vt.Buffer) tea.Cmd {
+		return func() tea.Msg { return editorActionMsg{exit: true} }
+	}
+	saveQuit := func(buf vt.Buffer) tea.Cmd {
+		text := buf.Text()
+		return func() tea.Msg { return editorActionMsg{save: true, exit: true, text: text} }
+	}
+
+	// ctrl+s saves without leaving the editor, in both normal and insert mode.
+	ed.AddBinding(vt.KeyBinding{Key: "ctrl+s", Mode: vt.ModeNormal, Description: "Save", Handler: save})
+	ed.AddBinding(vt.KeyBinding{Key: "ctrl+s", Mode: vt.ModeInsert, Description: "Save", Handler: save})
+
+	// Familiar vim ex-commands.
+	ed.AddCommand("w", func(b vt.Buffer, _ []string) tea.Cmd { return save(b) })
+	ed.AddCommand("q", func(b vt.Buffer, _ []string) tea.Cmd { return quit(b) })
+	ed.AddCommand("q!", func(b vt.Buffer, _ []string) tea.Cmd { return quit(b) })
+	ed.AddCommand("wq", func(b vt.Buffer, _ []string) tea.Cmd { return saveQuit(b) })
+	ed.AddCommand("x", func(b vt.Buffer, _ []string) tea.Cmd { return saveQuit(b) })
+	return ed
 }
 
 func (m Model) updateEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, m.keys.Save):
-		content := []byte(m.ta.Value())
-		if err := m.store.Save(m.editingFile, content); err != nil {
-			m.setError(fmt.Sprintf("save failed: %v", err))
-			return m, nil
-		}
-		m.ta.Blur()
+	if m.editor == nil {
 		m.mode = modeBrowse
-		m.reloadFiles()
-		m.loadContent()
-		m.setStatus(fmt.Sprintf("saved %s", m.editingFile.Name))
-		return m, nil
-
-	case key.Matches(msg, m.keys.Cancel):
-		m.ta.Blur()
-		m.mode = modeBrowse
-		m.setStatus("edit cancelled")
 		return m, nil
 	}
-	var cmd tea.Cmd
-	m.ta, cmd = m.ta.Update(msg)
+	mdl, cmd := m.editor.Update(msg)
+	if ed, ok := mdl.(vt.Editor); ok {
+		m.editor = ed
+	}
 	return m, cmd
 }
 
